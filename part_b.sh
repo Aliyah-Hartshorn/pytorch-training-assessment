@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#! /usr/bin/env bash
+
 # =============================================================================
 # run_distributed.sh — Multi-GPU launcher for train.py using PyTorch torchrun
 # Part B: Option 2 — PyTorch Torchrun
