@@ -1,26 +1,4 @@
 <<<<<<< HEAD
-#!/usr/bin/env bash
-# =============================================================================
-# run_distributed.sh — Multi-GPU launcher for train.py using PyTorch torchrun
-# Part B: Option 2 — PyTorch Torchrun
-#
-# Usage:
-#   ./run_distributed.sh [OPTIONS]
-#
-# Pass-through options are forwarded directly to train.py:
-#   --epochs     INT    Number of training epochs          (default: 5)
-#   --batch-size INT    Per-GPU batch size                 (default: 64)
-#   --lr         FLOAT  Learning rate                      (default: 1e-3)
-#   --data       PATH   Path to dataset root               (default: ./data)
-#   --output-dir PATH   Where to save checkpoints/logs     (default: ./outputs)
-#   --tracker    STR    Experiment tracker: wandb|mlflow|none (default: none)
-#
-# Examples:
-#   ./run_distributed.sh
-#   ./run_distributed.sh --epochs 10 --batch-size 128 --lr 5e-4 --tracker wandb
-#   ./run_distributed.sh --epochs 3 --output-dir ./my_run
-# =============================================================================
-
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
