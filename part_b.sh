@@ -1,13 +1,13 @@
 #! /usr/bin/env bash
 
 # =============================================================================
-# run_distributed.sh — Multi-GPU launcher for train.py using PyTorch torchrun
+# run_distributed.sh — Multi-GPU launcher for part_A.py using PyTorch torchrun
 # Part B: Option 2 — PyTorch Torchrun
 #
 # Usage:
 #   ./run_distributed.sh [OPTIONS]
 #
-# Pass-through options are forwarded directly to train.py:
+# Pass-through options are forwarded directly to part_A.py / train.py:
 #   --epochs     INT    Number of training epochs          (default: 5)
 #   --batch-size INT    Per-GPU batch size                 (default: 64)
 #   --lr         FLOAT  Learning rate                      (default: 1e-3)
@@ -114,14 +114,15 @@ check_dep() {
 check_dep python3
 check_dep torchrun
 
-if [[ ! -f "part_A.py" && ! -f "train.py" ]]; then
+# Prefer train.py; fall back to part_A.py (assessment context).
+if [[ -f "train.py" ]]; then
+    TRAIN_SCRIPT="train.py"
+elif [[ -f "part_A.py" ]]; then
+    TRAIN_SCRIPT="part_A.py"
+else
     error "Training script not found. Expected 'train.py' (or 'part_A.py') in the current directory."
     exit 1
 fi
-
-# Use part_A.py if train.py doesn't exist (assessment context)
-TRAIN_SCRIPT="train.py"
-[[ ! -f "train.py" ]] && TRAIN_SCRIPT="part_A.py"
 
 # -----------------------------------------------------------------------------
 # GPU / device detection
@@ -137,16 +138,27 @@ if ! [[ "$GPU_COUNT" =~ ^[0-9]+$ ]]; then
     GPU_COUNT=0
 fi
 
-# Determine world size (number of processes to launch)
+# Determine world size and launch mode.
+#
+# | GPUs | WORLD_SIZE | MODE        | Notes                                     |
+# |------|------------|-------------|-------------------------------------------|
+# | 0    | 1          | cpu         | No CUDA; gloo backend via LOCAL_RANK=0    |
+# | 1    | 1          | single      | One GPU; DDP active but single-process    |
+# | 2+   | GPU_COUNT  | distributed | True multi-GPU DDP via nccl               |
+#
+# All three paths go through the same torchrun / DDP code in part_A.py.
+# The script detects LOCAL_RANK from the environment to decide whether to
+# initialise a process group.
+
 if [[ "$GPU_COUNT" -ge 2 ]]; then
     WORLD_SIZE=$GPU_COUNT
-    DEVICE_LABEL="${GPU_COUNT}x GPU"
+    DEVICE_LABEL="${GPU_COUNT}x GPU (DDP / nccl)"
     MODE="distributed"
 elif [[ "$GPU_COUNT" -eq 1 ]]; then
     WORLD_SIZE=1
-    DEVICE_LABEL="1x GPU (single process)"
+    DEVICE_LABEL="1x GPU (single-process)"
     MODE="single"
-    warn "Only 1 GPU detected — launching single-process training (no DDP)."
+    warn "Only 1 GPU detected — launching single-process training."
 else
     WORLD_SIZE=1
     DEVICE_LABEL="CPU (no CUDA available)"
@@ -192,18 +204,23 @@ header "------------------------------------------------------------"
 echo ""
 
 # -----------------------------------------------------------------------------
-# Launch training via torchrun
+# Build the torchrun command
+#
+# --nproc_per_node   : one process per GPU (or 1 for CPU/single-GPU)
+# --standalone       : single-node run — no external rendezvous server needed
+# --nnodes=1         : single machine
+# --rdzv_backend=c10d: use the built-in C10d rendezvous (robust for 1–N procs)
+#
+# The training script detects LOCAL_RANK (set by torchrun) to decide whether
+# to initialise a distributed process group, so no code change is needed when
+# scaling between 1 and 2 GPUs.
 # -----------------------------------------------------------------------------
-# torchrun is the recommended replacement for torch.distributed.launch (PyTorch >= 1.10).
-# --nproc_per_node sets the number of worker processes per machine.
-# For single-GPU / CPU fallback, nproc_per_node=1 gives identical behaviour to
-# running python directly but goes through the same code path for consistency.
-
 TORCHRUN_CMD=(
     torchrun
     --nproc_per_node="${WORLD_SIZE}"
-    --standalone                # single-node run; no rendezvous server needed
+    --standalone
     --nnodes=1
+    --rdzv_backend=c10d
     "${TRAIN_SCRIPT}"
     --epochs       "${EPOCHS}"
     --batch-size   "${BATCH_SIZE}"
@@ -239,10 +256,11 @@ else
     echo ""
     header "Troubleshooting guidance:"
     echo "  • CUDA out of memory  → reduce --batch-size (try half the current value)"
-    echo "  • NCCL timeout        → check GPU interconnect, reduce --nproc_per_node"
+    echo "  • NCCL timeout        → check GPU interconnect, or reduce --nproc_per_node"
     echo "  • Missing dependency  → run: pip install -r requirements.txt"
     echo "  • torchrun not found  → upgrade PyTorch: pip install --upgrade torch"
     echo "  • Permission denied   → run: chmod +x run_distributed.sh"
+    echo "  • DDP init failure    → ensure all GPUs are visible: nvidia-smi"
     echo ""
     echo "  Full log available at: ${LOG_FILE}"
     exit $EXIT_CODE
